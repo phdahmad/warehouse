@@ -1,0 +1,318 @@
+const ITEM_SIZE = 10; // حجم النقطة بصرياً
+const START_POINT_COLOR = "blue";
+const ITEM_COLOR = "red";
+const PATH_COLOR = "green";
+const TSP_PATH_COLOR = "orange";
+const PIXELS_PER_UNIT = 20; // كل وحدة في المستودع تمثل كم بكسل
+
+let warehouseWidth, warehouseHeight, numItemsToPick, numTotalItems;
+let allItemLocations = []; // {id, x, y}
+let pickListItems = []; // subset of allItemLocations
+let startPoint = { x: 0, y: 0, name: "Start" }; // نقطة بداية العامل
+
+function displayError(elementId, message) {
+    const errorElement = document.getElementById(elementId);
+    if (errorElement) {
+        errorElement.textContent = message;
+        errorElement.style.display = 'block';
+    }
+    // إخفاء النتائج الأخرى
+    if (elementId.includes("random")) {
+        document.getElementById('resultsRandom').querySelectorAll('p:not(.error)').forEach(p => p.textContent = '');
+    } else if (elementId.includes("tsp")) {
+        document.getElementById('resultsTSP').querySelectorAll('p:not(.error)').forEach(p => p.textContent = '');
+    }
+}
+
+function clearErrors() {
+    document.getElementById('randomError').textContent = '';
+    document.getElementById('randomError').style.display = 'none';
+    document.getElementById('tspError').textContent = '';
+    document.getElementById('tspError').style.display = 'none';
+}
+
+
+// دالة لحساب مسافة مانهاتن (محاكاة الحركة في الممرات)
+function manhattanDistance(point1, point2) {
+    return Math.abs(point1.x - point2.x) + Math.abs(point1.y - point2.y);
+}
+
+// توليد مواقع عشوائية للمنتجات داخل المستودع
+function generateItemLocations() {
+    allItemLocations = [];
+    const usedLocations = new Set();
+    usedLocations.add(`${startPoint.x},${startPoint.y}`); // تجنب وضع منتج في نقطة البداية
+
+    for (let i = 0; i < numTotalItems; i++) {
+        let x, y, locationKey;
+        do {
+            x = Math.floor(Math.random() * warehouseWidth);
+            y = Math.floor(Math.random() * warehouseHeight);
+            locationKey = `${x},${y}`;
+        } while (usedLocations.has(locationKey));
+        allItemLocations.push({ id: `item-${i}`, x: x, y: y, name: `P${i}` });
+        usedLocations.add(locationKey);
+    }
+}
+
+// اختيار قائمة منتجات عشوائية للجلب
+function generatePickList() {
+    pickListItems = [];
+    if (numItemsToPick > allItemLocations.length) {
+        displayError('randomError', `لا يمكن اختيار ${numItemsToPick} منتج، يوجد فقط ${allItemLocations.length} منتج متاح.`);
+        displayError('tspError', `لا يمكن اختيار ${numItemsToPick} منتج، يوجد فقط ${allItemLocations.length} منتج متاح.`);
+        return false;
+    }
+    const shuffled = [...allItemLocations].sort(() => 0.5 - Math.random());
+    pickListItems = shuffled.slice(0, numItemsToPick);
+    return true;
+}
+
+
+// حساب التكلفة لمسار معين (قائمة من النقاط بالترتيب)
+function calculatePathCost(path) {
+    let totalDistance = 0;
+    // من نقطة البداية إلى أول منتج
+    totalDistance += manhattanDistance(startPoint, path[0]);
+    for (let i = 0; i < path.length - 1; i++) {
+        totalDistance += manhattanDistance(path[i], path[i+1]);
+    }
+    // من آخر منتج إلى نقطة البداية
+    totalDistance += manhattanDistance(path[path.length - 1], startPoint);
+    return totalDistance;
+}
+
+// 1. الطريقة العشوائية
+function simulateRandomPicking() {
+    if (!pickListItems.length) return { order: [], distance: 0, time: 0 };
+
+    // ترتيب الجلب هو نفس ترتيبها العشوائي في pickListItems
+    const randomPath = [...pickListItems];
+    const distance = calculatePathCost(randomPath);
+    const time = distance; // افترض أن وحدة زمن واحدة لكل وحدة مسافة
+
+    document.getElementById('resultsRandom').style.display = 'block';
+    document.getElementById('randomOrder').textContent = `ترتيب الجلب العشوائي: Start -> ${randomPath.map(p => p.name).join(' -> ')} -> Start`;
+    document.getElementById('randomDistance').textContent = `إجمالي المسافة المقطوعة (عشوائي): ${distance.toFixed(2)} وحدات`;
+    document.getElementById('randomTime').textContent = `إجمالي الزمن المستغرق (عشوائي): ${time.toFixed(2)} وحدات زمن`;
+    drawPath(randomPath, PATH_COLOR, 'random');
+}
+
+// 2. طريقة TSP (خوارزمية أقرب جار - Nearest Neighbor Heuristic)
+function simulateTSPPicking_NearestNeighbor() {
+    if (!pickListItems.length) return { order: [], distance: 0, time: 0 };
+
+    let unvisited = [...pickListItems];
+    let currentPoint = startPoint;
+    let tspPath = [];
+
+    while (unvisited.length > 0) {
+        let nearestIndex = -1;
+        let minDistance = Infinity;
+
+        for (let i = 0; i < unvisited.length; i++) {
+            const dist = manhattanDistance(currentPoint, unvisited[i]);
+            if (dist < minDistance) {
+                minDistance = dist;
+                nearestIndex = i;
+            }
+        }
+        const nextPoint = unvisited.splice(nearestIndex, 1)[0];
+        tspPath.push(nextPoint);
+        currentPoint = nextPoint;
+    }
+
+    const distance = calculatePathCost(tspPath);
+    const time = distance; // افترض أن وحدة زمن واحدة لكل وحدة مسافة
+
+    document.getElementById('resultsTSP').style.display = 'block';
+    document.getElementById('tspOrder').textContent = `ترتيب الجلب (TSP - أقرب جار): Start -> ${tspPath.map(p => p.name).join(' -> ')} -> Start`;
+    document.getElementById('tspDistance').textContent = `إجمالي المسافة المقطوعة (TSP): ${distance.toFixed(2)} وحدات`;
+    document.getElementById('tspTime').textContent = `إجمالي الزمن المستغرق (TSP): ${time.toFixed(2)} وحدات زمن`;
+    drawPath(tspPath, TSP_PATH_COLOR, 'tsp');
+}
+
+
+// ---- دوال الرسم ----
+const layoutDiv = document.getElementById('warehouseLayout');
+
+function drawWarehouse() {
+    layoutDiv.innerHTML = ''; // مسح الرسم السابق
+    layoutDiv.style.width = `${warehouseWidth * PIXELS_PER_UNIT}px`;
+    layoutDiv.style.height = `${warehouseHeight * PIXELS_PER_UNIT}px`;
+
+    // رسم نقطة البداية
+    const startDot = document.createElement('div');
+    startDot.className = 'item-dot';
+    startDot.style.backgroundColor = START_POINT_COLOR;
+    startDot.style.width = `${ITEM_SIZE + 5}px`; // أكبر قليلاً
+    startDot.style.height = `${ITEM_SIZE + 5}px`;
+    startDot.style.left = `${startPoint.x * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2}px`;
+    startDot.style.top = `${startPoint.y * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2}px`;
+    startDot.title = "Start/End";
+    layoutDiv.appendChild(startDot);
+
+
+    // رسم المنتجات المختارة للجلب فقط
+    pickListItems.forEach(item => {
+        const itemDot = document.createElement('div');
+        itemDot.className = 'item-dot';
+        itemDot.style.backgroundColor = ITEM_COLOR;
+        itemDot.style.left = `${item.x * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2}px`;
+        itemDot.style.top = `${item.y * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2}px`;
+        itemDot.title = `${item.name} (X:${item.x}, Y:${item.y})`;
+        layoutDiv.appendChild(itemDot);
+    });
+}
+
+function drawLine(x1, y1, x2, y2, color, type, isVertical) {
+    const line = document.createElement('div');
+    line.classList.add('path-line', `path-${type}`); // Add type for specific clearing
+    const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+
+    line.style.width = `${length}px`;
+    line.style.height = '2px';
+    line.style.backgroundColor = color;
+    line.style.left = `${x1}px`;
+    line.style.top = `${y1}px`;
+    line.style.transformOrigin = '0 0';
+    line.style.transform = `rotate(${angle}deg)`;
+    layoutDiv.appendChild(line);
+}
+function drawManhattanLine(p1, p2, pathColor, pathType) {
+    const x1 = p1.x * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2;
+    const y1 = p1.y * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2;
+    const x2 = p2.x * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2;
+    const y2 = p2.y * PIXELS_PER_UNIT + PIXELS_PER_UNIT / 2;
+
+    // الخط الأفقي أولاً ثم الرأسي
+    if (x1 !== x2) { // Draw horizontal segment
+        drawLine(Math.min(x1, x2), y1, Math.max(x1, x2), y1, pathColor, pathType, false);
+    }
+    if (y1 !== y2) { // Draw vertical segment
+        drawLine(x2, Math.min(y1,y2), x2, Math.max(y1,y2), pathColor, pathType, true);
+    }
+}
+
+
+function drawPath(path, pathColor, pathType) {
+    // مسح المسارات القديمة من نفس النوع فقط
+    document.querySelectorAll(`.path-${pathType}`).forEach(el => el.remove());
+
+    if (!path.length) return;
+
+    // من نقطة البداية إلى أول منتج
+    drawManhattanLine(startPoint, path[0], pathColor, pathType);
+
+    for (let i = 0; i < path.length - 1; i++) {
+        drawManhattanLine(path[i], path[i+1], pathColor, pathType);
+    }
+    // من آخر منتج إلى نقطة البداية
+    drawManhattanLine(path[path.length - 1], startPoint, pathColor, pathType);
+}
+
+
+// بدء المحاكاة
+function startSimulation() {
+    clearErrors();
+    document.getElementById('resultsRandom').style.display = 'none';
+    document.getElementById('resultsTSP').style.display = 'none';
+
+    warehouseWidth = parseInt(document.getElementById('warehouseWidth').value);
+    warehouseHeight = parseInt(document.getElementById('warehouseHeight').value);
+    numItemsToPick = parseInt(document.getElementById('numItemsToPick').value);
+    numTotalItems = parseInt(document.getElementById('numTotalItems').value);
+
+    if (numItemsToPick < 2) {
+        displayError('randomError',"يجب أن يكون عدد المنتجات المطلوب جلبها 2 على الأقل لـ TSP.");
+        displayError('tspError',"يجب أن يكون عدد المنتجات المطلوب جلبها 2 على الأقل لـ TSP.");
+        return;
+    }
+     if (numTotalItems < numItemsToPick) {
+        displayError('randomError',"إجمالي عدد المنتجات في المستودع يجب أن يكون أكبر من أو يساوي عدد المنتجات المطلوب جلبها.");
+        displayError('tspError',"إجمالي عدد المنتجات في المستودع يجب أن يكون أكبر من أو يساوي عدد المنتجات المطلوب جلبها.");
+        return;
+    }
+    if (numTotalItems > warehouseWidth * warehouseHeight -1) { // -1 for start point
+        displayError('randomError', `لا يمكن توزيع ${numTotalItems} منتج في مستودع حجمه ${warehouseWidth}x${warehouseHeight}. قلل عدد المنتجات أو زد حجم المستودع.`);
+        displayError('tspError', `لا يمكن توزيع ${numTotalItems} منتج في مستودع حجمه ${warehouseWidth}x${warehouseHeight}. قلل عدد المنتجات أو زد حجم المستودع.`);
+        return;
+    }
+
+
+    startPoint = { x: Math.floor(warehouseWidth / 2), y: warehouseHeight - 1, name: "Start" }; // نقطة بداية العامل أسفل المنتصف
+
+    generateItemLocations();
+    if (!generatePickList()) { // إذا فشل اختيار قائمة الجلب (مثلاً، منتجات غير كافية)
+        drawWarehouse(); // ارسم المستودع بدون منتجات مختارة أو بمنتجات قليلة
+        return;
+    }
+
+    drawWarehouse(); // ارسم المستودع والمنتجات المختارة
+
+    simulateRandomPicking();
+    simulateTSPPicking_NearestNeighbor(); // يمكنك استبدال هذه بخوارزمية TSP أفضل لاحقًا
+}
+
+// ---- TSP - Brute force (for very small N, e.g., N <= 8) ----
+//  هذه الدالة ستكون بطيئة جداً لـ N أكبر من 8-10
+//  يمكنك استدعائها بدلاً من simulateTSPPicking_NearestNeighbor إذا أردت الحل الأمثل لمجموعات صغيرة
+function solveTSPBruteForce(points) {
+    if (points.length === 0) return { order: [], distance: 0 };
+    if (points.length === 1) return { order: [points[0]], distance: calculatePathCost([points[0]]) };
+
+
+    let minDistance = Infinity;
+    let bestPath = [];
+    const permutations = permute(points); // دالة توليد كل التباديل
+
+    permutations.forEach(perm => {
+        const currentDistance = calculatePathCost(perm);
+        if (currentDistance < minDistance) {
+            minDistance = currentDistance;
+            bestPath = perm;
+        }
+    });
+    return { order: bestPath, distance: minDistance };
+}
+
+// دالة مساعدة لتوليد كل التباديل (Permutations)
+function permute(arr) {
+    const result = [];
+    const p = (currentPermutation, remainingElements) => {
+        if (remainingElements.length === 0) {
+            result.push(currentPermutation);
+            return;
+        }
+        for (let i = 0; i < remainingElements.length; i++) {
+            const nextPermutation = currentPermutation.concat(remainingElements[i]);
+            const nextRemaining = remainingElements.slice(0, i).concat(remainingElements.slice(i + 1));
+            p(nextPermutation, nextRemaining);
+        }
+    };
+    p([], arr);
+    return result;
+}
+
+function simulateTSPPicking_BruteForce() {
+    if (!pickListItems.length) return;
+     if (numItemsToPick > 8) { // حد لتجنب التجمد
+        displayError('tspError', "Brute-force TSP مناسب فقط لعدد منتجات صغير جدًا (<=8). يتم استخدام أقرب جار بدلاً منه.");
+        simulateTSPPicking_NearestNeighbor(); // استخدم الخوارزمية الأسرع
+        return;
+    }
+
+
+    const { order: tspPath, distance } = solveTSPBruteForce(pickListItems);
+    const time = distance;
+
+    document.getElementById('resultsTSP').style.display = 'block';
+    document.getElementById('tspOrder').textContent = `ترتيب الجلب (TSP - Brute Force): Start -> ${tspPath.map(p => p.name).join(' -> ')} -> Start`;
+    document.getElementById('tspDistance').textContent = `إجمالي المسافة المقطوعة (TSP): ${distance.toFixed(2)} وحدات`;
+    document.getElementById('tspTime').textContent = `إجمالي الزمن المستغرق (TSP): ${time.toFixed(2)} وحدات زمن`;
+    drawPath(tspPath, TSP_PATH_COLOR, 'tsp');
+}
+
+
+// يمكنك إضافة المزيد من خوارزميات TSP هنا، مثل 2-opt لتحسين حل أقرب جار

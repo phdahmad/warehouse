@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محاكاة مستودع - VRP مع وقت جلب متغير</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f0f2f5; color: #333; }
+        .container { background-color: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .controls { margin-bottom: 30px; padding-bottom: 25px; border-bottom: 1px solid #e0e0e0; }
+        label { display: block; margin-top: 12px; font-weight: 600; color: #555; }
+        input[type="number"], select {
+            width: calc(100% - 24px);
+            padding: 10px;
+            margin-top: 6px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+        input[type="number"]:focus, select:focus { border-color: #007bff; outline: none; }
+        button {
+            background-color: #007bff; color: white; padding: 12px 20px; border: none;
+            border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 25px; width: 100%;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #b0b0b0; cursor: not-allowed;}
+
+        .simulation-area { margin-top: 25px;}
+        .map-container {
+            border: 1px solid #d0d0d0;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #fdfdfd;
+            box-sizing: border-box;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        .warehouseLayout {
+            margin-top: 15px;
+            border: 1px solid #b0b0b0;
+            position: relative;
+            background-color: #E8E8E8; 
+            overflow: hidden;
+        }
+        .item-dot {
+            position: absolute;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-sizing: border-box;
+            border: 1px solid rgba(0,0,0,0.2);
+            transition: background-color 0.2s ease-in-out; /* For picking animation */
+        }
+        .item-dot.picking { /* Style for worker when picking an item */
+            animation: pulse 0.5s infinite alternate;
+        }
+        @keyframes pulse {
+            from { transform: translate(-50%, -50%) scale(1); }
+            to { transform: translate(-50%, -50%) scale(1.3); }
+        }
+        .path-line {
+            position: absolute;
+            opacity: 0.7;
+            height: 3px;
+            z-index: 5;
+        }
+        h1 { color: #0056b3; text-align: center; margin-bottom: 25px; }
+        h2 { color: #0067ac; margin-top: 0; font-size: 1.4em; border-bottom: 2px solid #007bff; padding-bottom: 8px; margin-bottom: 15px; }
+        .results { margin-top: 20px; padding: 12px; background-color: #e9f5ff; border-left: 5px solid #007bff; font-size: 0.95em; }
+        .results h3 { margin-top: 0; font-size: 1.15em;}
+        .results p { margin: 5px 0; }
+        .error, .warning { color: #d9534f; font-weight: bold; margin-top: 8px; padding: 8px; border-radius: 4px; }
+        .warning { color: #8a6d3b; background-color: #fcf8e3; border: 1px solid #faebcc;}
+        .error { background-color: #f2dede; border: 1px solid #ebccd1;}
+
+        .order-number {
+            position: absolute;
+            font-size: 9px;
+            font-weight: bold;
+            pointer-events: none;
+            padding: 1px 2px;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 3px;
+            z-index: 15;
+        }
+        .input-group { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; margin-bottom:15px;}
+        .input-field { flex: 1; min-width: 150px; }
+        .input-field label { margin-bottom: 3px; }
+        .input-field input[type="number"], .input-field select { width: 100%; }
+        .random-picking-time-inputs { display: none; } /* Initially hidden */
+
+        @media (max-width: 900px) {
+            .input-group { flex-direction: column; align-items: stretch; gap: 10px;}
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>محاكاة مستودع - VRP مع وقت جلب متغير</h1>
+
+        <div class="controls">
+            <div class="input-group">
+                <div class="input-field">
+                    <label for="warehouseWidth">عرض المستودع (وحدات):</label>
+                    <input type="number" id="warehouseWidth" value="30" min="10">
+                </div>
+                <div class="input-field">
+                    <label for="warehouseHeight">ارتفاع المستودع (وحدات):</label>
+                    <input type="number" id="warehouseHeight" value="20" min="10">
+                </div>
+            </div>
+            <div class="input-group">
+                <div class="input-field">
+                    <label for="numWorkers">عدد العمال:</label>
+                    <input type="number" id="numWorkers" value="3" min="1" max="10">
+                </div>
+                <div class="input-field">
+                    <label for="workerCapacity">سعة العامل (منتجات/جولة):</label>
+                    <input type="number" id="workerCapacity" value="5" min="1">
+                </div>
+            </div>
+            <div class="input-group">
+                <div class="input-field">
+                    <label for="pickingTimeType">نوع وقت الجلب:</label>
+                    <select id="pickingTimeType" onchange="toggleRandomPickingTimeInputs()">
+                        <option value="fixed">ثابت</option>
+                        <option value="random">عشوائي ضمن نطاق</option>
+                    </select>
+                </div>
+                <div class="input-field" id="fixedPickingTimeInput">
+                    <label for="pickingTimePerItem">وقت الجلب الثابت (وحدات زمن):</label>
+                    <input type="number" id="pickingTimePerItem" value="2" min="0">
+                </div>
+            </div>
+            <div class="input-group random-picking-time-inputs" id="randomPickingTimeInputs">
+                <div class="input-field">
+                    <label for="minRandomPickingTime">أقل وقت جلب عشوائي:</label>
+                    <input type="number" id="minRandomPickingTime" value="1" min="0">
+                </div>
+                <div class="input-field">
+                    <label for="maxRandomPickingTime">أقصى وقت جلب عشوائي:</label>
+                    <input type="number" id="maxRandomPickingTime" value="5" min="0">
+                </div>
+            </div>
+            <div class="input-group">
+                <div class="input-field">
+                    <label for="numTotalAvailableItems">إجمالي المنتجات المتاحة في المستودع:</label>
+                    <input type="number" id="numTotalAvailableItems" value="60" min="0">
+                </div>
+                <div class="input-field">
+                    <label for="numItemsToPickGlobalDemand">إجمالي المنتجات المطلوب جلبها (الطلب الكلي):</label>
+                    <input type="number" id="numItemsToPickGlobalDemand" value="15" min="0">
+                </div>
+            </div>
+             <div>
+                <label for="vrpAlgorithm">اختر خوارزمية حل VRP:</label>
+                <select id="vrpAlgorithm">
+                    <option value="round_robin_2opt">توزيع دوري + 2-Opt (أساسي)</option>
+                    <option value="clarke_wright_2opt">خوارزمية التوفير (Clarke & Wright) + 2-Opt</option>
+                </select>
+            </div>
+            <button id="startButton" onclick="startSimulation()">ابدأ المحاكاة</button>
+        </div>
+
+        <div class="simulation-area">
+            <div class="map-container">
+                <h2>خريطة المستودع ومسارات العمال</h2>
+                <div id="warehouseLayoutVRP" class="warehouseLayout"></div>
+                <p><small>كل عامل له لون مسار مختلف. الأرقام بجانب المنتجات تشير إلى ترتيب الجلب لكل عامل.</small></p>
+                <div id="resultsVRP" class="results" style="display:none;">
+                    <h3>النتائج الإجمالية (VRP):</h3>
+                    <p id="vrpAlgorithmUsedText"></p>
+                    <p id="vrpTotalDistanceText"></p>
+                    <p id="vrpMaxTimeText"></p>
+                    <p id="vrpTotalTimeText"></p>
+                    <p id="vrpWarning" class="warning" style="display:none;"></p>
+                    <div id="vrpWorkerDetails"></div>
+                    <p id="vrpError" class="error" style="display:none;"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleRandomPickingTimeInputs() {
+            const type = document.getElementById('pickingTimeType').value;
+            const randomInputsDiv = document.getElementById('randomPickingTimeInputs');
+            const fixedInputDiv = document.getElementById('fixedPickingTimeInput');
+            if (type === 'random') {
+                randomInputsDiv.style.display = 'flex'; // Or 'block' if they are not in an input-group
+                fixedInputDiv.style.display = 'none';
+            } else {
+                randomInputsDiv.style.display = 'none';
+                fixedInputDiv.style.display = 'flex'; // Or 'block'
+            }
+        }
+        // Call it once on page load to set initial state
+        document.addEventListener('DOMContentLoaded', toggleRandomPickingTimeInputs);
+    </script>
+    <script src="simulation_vrp_advanced.js"></script>
+</body>
+</html>

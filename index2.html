@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محاكاة عامل المستودع - تخطيطات متقدمة</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .controls { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input[type="number"], select {
+            width: calc(100% - 22px); /* Adjust for padding and border */
+            padding: 10px;
+            margin-top: 5px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff; color: white; padding: 12px 20px; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 20px; width: 100%;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed;}
+
+        .simulation-area { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; margin-top: 20px;}
+        .map-container {
+            border: 2px solid #007bff;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+            width: calc(50% - 20px); /* Adjust width for two maps, considering gap */
+            min-width: 380px; /* Minimum width for responsiveness */
+            box-sizing: border-box;
+        }
+        .warehouseLayout {
+            margin-top: 10px;
+            border: 1px solid #ccc;
+            position: relative;
+            background-color: #e9e9e9;
+            overflow: hidden; /* Hide parts of dots/lines that go outside */
+        }
+        .item-dot {
+            position: absolute;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-sizing: border-box;
+        }
+        .path-line {
+            position: absolute;
+            opacity: 0.6;
+            height: 2.5px;
+        }
+        h1, h2 { color: #0056b3; text-align: center; }
+        h2 { margin-top: 0; font-size: 1.3em; }
+        h3 { color: #333; }
+        .results { margin-top: 15px; padding: 10px; background-color: #e3f2fd; border-left: 5px solid #007bff; font-size: 0.9em; }
+        .results h3 { margin-top: 0; font-size: 1.1em;}
+        .results p { margin: 4px 0; }
+        .error { color: red; font-weight: bold; margin-top: 5px;}
+        .order-number {
+            position: absolute;
+            font-size: 9px;
+            font-weight: bold;
+            pointer-events: none;
+            padding: 1px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 2px;
+        }
+         .input-group { display: flex; gap: 10px; align-items: center; margin-bottom:10px;}
+        .input-group label { margin-top: 0; white-space: nowrap;}
+        .input-group input[type="number"], .input-group select { width: 100%; }
+
+        @media (max-width: 800px) {
+            .map-container {
+                width: 100%;
+            }
+            .input-group { flex-direction: column; align-items: stretch;}
+            .input-group input[type="number"], .input-group select { width: calc(100% - 22px); }
+
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>محاكاة عامل المستودع</h1>
+
+        <div class="controls">
+            <div class="input-group">
+                <label for="warehouseWidth">عرض المستودع:</label>
+                <input type="number" id="warehouseWidth" value="30" min="10">
+                <label for="warehouseHeight">ارتفاع المستودع:</label>
+                <input type="number" id="warehouseHeight" value="20" min="10">
+            </div>
+            <div class="input-group">
+                <label for="numItemsToPick">منتجات للجلب (س):</label>
+                <input type="number" id="numItemsToPick" value="7" min="0">
+                <label for="numTotalItems">إجمالي المنتجات:</label>
+                <input type="number" id="numTotalItems" value="60" min="0">
+            </div>
+            <div>
+                <label for="layoutType">اختر تخطيط المستودع:</label>
+                <select id="layoutType">
+                    <option value="random_scatter">توزيع عشوائي متناثر (الافتراضي)</option>
+                    <option value="u_shape">شكل U (نقطة بداية في القاعدة)</option>
+                    <option value="i_shape">شكل I (تدفق مباشر)</option>
+                    <option value="l_shape">شكل L (نقطة بداية في الزاوية)</option>
+                </select>
+            </div>
+            <button id="startButton" onclick="startSimulation()">ابدأ المحاكاة</button>
+        </div>
+
+        <div class="simulation-area">
+            <div class="map-container">
+                <h2>الخريطة: الجلب العشوائي</h2>
+                <div id="warehouseLayoutRandom" class="warehouseLayout"></div>
+                <p><small>المسار الأخضر. الأرقام الخضراء هي ترتيب الجلب.</small></p>
+                <div id="resultsRandom" class="results" style="display:none;">
+                    <h3>النتائج (عشوائي):</h3>
+                    <p id="randomOrderText"></p> <p id="randomDistanceText"></p> <p id="randomTimeText"></p> <p id="randomError" class="error"></p>
+                </div>
+            </div>
+
+            <div class="map-container">
+                <h2>الخريطة: الجلب المُحسَّن (TSP)</h2>
+                <div id="warehouseLayoutTSP" class="warehouseLayout"></div>
+                <p><small>المسار البرتقالي. الأرقام البرتقالية هي ترتيب الجلب.</small></p>
+                <div id="resultsTSP" class="results" style="display:none;">
+                    <h3>النتائج (TSP - أقرب جار + 2-Opt):</h3>
+                    <p id="tspOrderText"></p> <p id="tspDistanceText"></p> <p id="tspTimeText"></p> <p id="tspError" class="error"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="simulation2.js"></script>
+</body>
+</html>
